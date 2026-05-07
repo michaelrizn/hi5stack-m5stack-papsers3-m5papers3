@@ -14,6 +14,101 @@ namespace sd_gateway {
     bool isActive() { return active; }
     uint16_t getPort() { return serverPort; }
 
+    String htmlEscape(const String& value) {
+        String escaped;
+        escaped.reserve(value.length());
+        for (size_t i = 0; i < value.length(); ++i) {
+            char c = value[i];
+            if (c == '&') escaped += F("&amp;");
+            else if (c == '<') escaped += F("&lt;");
+            else if (c == '>') escaped += F("&gt;");
+            else if (c == '"') escaped += F("&quot;");
+            else if (c == '\'') escaped += F("&#39;");
+            else escaped += c;
+        }
+        return escaped;
+    }
+
+    String urlEncode(const String& value) {
+        static const char hex[] = "0123456789ABCDEF";
+        String encoded;
+        encoded.reserve(value.length());
+        for (size_t i = 0; i < value.length(); ++i) {
+            uint8_t c = static_cast<uint8_t>(value[i]);
+            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                (c >= '0' && c <= '9') || c == '-' || c == '_' ||
+                c == '.' || c == '~' || c == '/') {
+                encoded += static_cast<char>(c);
+            } else {
+                encoded += '%';
+                encoded += hex[c >> 4];
+                encoded += hex[c & 0x0F];
+            }
+        }
+        return encoded;
+    }
+
+    String jsonEscape(const String& value) {
+        String escaped;
+        escaped.reserve(value.length());
+        for (size_t i = 0; i < value.length(); ++i) {
+            char c = value[i];
+            if (c == '"' || c == '\\') {
+                escaped += '\\';
+                escaped += c;
+            } else if (c == '\n') {
+                escaped += F("\\n");
+            } else if (c == '\r') {
+                escaped += F("\\r");
+            } else if (c == '\t') {
+                escaped += F("\\t");
+            } else {
+                escaped += c;
+            }
+        }
+        return escaped;
+    }
+
+    bool normalizePath(const String& input, String& normalized) {
+        String path = input;
+        path.trim();
+
+        if (path.isEmpty()) return false;
+        path.replace('\\', '/');
+        if (!path.startsWith("/")) path = "/" + path;
+        while (path.indexOf("//") >= 0) {
+            path.replace("//", "/");
+        }
+
+        if (path == "/" || path.indexOf("/../") >= 0 || path.endsWith("/..") ||
+            path.indexOf("/./") >= 0 || path.endsWith("/.") || path.indexOf('\0') >= 0) {
+            return false;
+        }
+
+        normalized = path;
+        return true;
+    }
+
+    bool normalizeUploadName(const String& input, String& normalized) {
+        String name = input;
+        name.trim();
+        name.replace('\\', '/');
+        int slash = name.lastIndexOf('/');
+        if (slash >= 0) {
+            name = name.substring(slash + 1);
+        }
+        if (name.isEmpty() || name == "." || name == ".." || name.indexOf("..") >= 0) {
+            return false;
+        }
+        return normalizePath(name, normalized);
+    }
+
+    bool isEditablePath(const String& filename) {
+        String lower = filename;
+        lower.toLowerCase();
+        return lower.endsWith(".txt") || lower.endsWith(".json");
+    }
+
     void handleRoot() {
         String html = "<html><head><title>SD Gateway</title></head><body>";
         html += "<h2>SD Gateway</h2>";
@@ -27,11 +122,18 @@ namespace sd_gateway {
             File entry = root.openNextFile();
             if (!entry) break;
             String name = entry.name();
+            String safeName;
+            if (!normalizePath(name, safeName)) {
+                entry.close();
+                continue;
+            }
+            String escapedName = htmlEscape(safeName);
+            String encodedName = urlEncode(safeName);
             html += "<li>";
-            html += "<input type='checkbox' name='file' value='" + name + "'> ";
-            html += name + " <a href='/delete?file=" + name + "'>[delete]</a>";
-            if (name.endsWith(".txt")) {
-                html += " <a href='/edit?file=" + name + "'>[edit]</a>";
+            html += "<input type='checkbox' name='file' value='" + escapedName + "'> ";
+            html += escapedName + " <a href='/delete?file=" + encodedName + "'>[delete]</a>";
+            if (isEditablePath(safeName)) {
+                html += " <a href='/edit?file=" + encodedName + "'>[edit]</a>";
             }
             html += "</li>";
             entry.close();
@@ -47,13 +149,26 @@ namespace sd_gateway {
     void handleUpload() {
         HTTPUpload& upload = server->upload();
         static File uploadFile;
+        static bool uploadAccepted = false;
         if (upload.status == UPLOAD_FILE_START) {
-            String filename = "/" + upload.filename;
+            if (uploadFile) {
+                uploadFile.close();
+            }
+            uploadAccepted = false;
+            String filename;
+            if (!normalizeUploadName(upload.filename, filename)) {
+                return;
+            }
+            if (SD.exists(filename)) {
+                SD.remove(filename);
+            }
             uploadFile = SD.open(filename, FILE_WRITE);
+            uploadAccepted = static_cast<bool>(uploadFile);
         } else if (upload.status == UPLOAD_FILE_WRITE) {
-            if (uploadFile) uploadFile.write(upload.buf, upload.currentSize);
+            if (uploadAccepted && uploadFile) uploadFile.write(upload.buf, upload.currentSize);
         } else if (upload.status == UPLOAD_FILE_END) {
             if (uploadFile) uploadFile.close();
+            uploadAccepted = false;
             server->sendHeader("Location", "/");
             server->send(303);
         }
@@ -64,8 +179,11 @@ namespace sd_gateway {
             server->send(400, "text/plain", "Missing file param");
             return;
         }
-        String filename = server->arg("file");
-        if (!filename.startsWith("/")) filename = "/" + filename;
+        String filename;
+        if (!normalizePath(server->arg("file"), filename)) {
+            server->send(400, "text/plain", "Invalid file param");
+            return;
+        }
         #ifdef DEBUG_SD_GATEWAY
         Serial.print("[SD Gateway] Delete request for: ");
         Serial.println(filename);
@@ -88,8 +206,10 @@ namespace sd_gateway {
         int n = server->args();
         for (int i = 0; i < n; ++i) {
             if (server->argName(i) == "file") {
-                String filename = server->arg(i);
-                if (!filename.startsWith("/")) filename = "/" + filename;
+                String filename;
+                if (!normalizePath(server->arg(i), filename)) {
+                    continue;
+                }
                 #ifdef DEBUG_SD_GATEWAY
                 Serial.print("[SD Gateway] Multi-delete: ");
                 Serial.println(filename);
@@ -108,10 +228,13 @@ namespace sd_gateway {
             server->send(400, "text/plain", "Missing file param");
             return;
         }
-        String filename = server->arg("file");
-        if (!filename.startsWith("/")) filename = "/" + filename;
-        if (!filename.endsWith(".txt")) {
-            server->send(403, "text/plain", "Editing only allowed for .txt files");
+        String filename;
+        if (!normalizePath(server->arg("file"), filename)) {
+            server->send(400, "text/plain", "Invalid file param");
+            return;
+        }
+        if (!isEditablePath(filename)) {
+            server->send(403, "text/plain", "Editing only allowed for .txt and .json files");
             return;
         }
         File file = SD.open(filename, FILE_READ);
@@ -124,19 +247,13 @@ namespace sd_gateway {
             content += (char)file.read();
         }
         file.close();
-        String html = "<html><head><title>Edit " + filename + "</title></head><body>";
-        html += "<h2>Edit: " + filename + "</h2>";
+        String escapedFilename = htmlEscape(filename);
+        String html = "<html><head><title>Edit " + escapedFilename + "</title></head><body>";
+        html += "<h2>Edit: " + escapedFilename + "</h2>";
         html += "<form method='POST' action='/edit'>";
-        html += "<input type='hidden' name='file' value='" + filename + "'>";
+        html += "<input type='hidden' name='file' value='" + escapedFilename + "'>";
         html += "<textarea name='content' rows='25' cols='80'>";
-
-        for (size_t i = 0; i < content.length(); ++i) {
-            char c = content[i];
-            if (c == '<') html += "&lt;";
-            else if (c == '>') html += "&gt;";
-            else if (c == '&') html += "&amp;";
-            else html += c;
-        }
+        html += htmlEscape(content);
         html += "</textarea><br>";
         html += "<input type='submit' value='Save'> ";
         html += "<a href='/'>Cancel</a>";
@@ -149,9 +266,19 @@ namespace sd_gateway {
             server->send(400, "text/plain", "Missing file or content param");
             return;
         }
-        String filename = server->arg("file");
-        if (!filename.startsWith("/")) filename = "/" + filename;
+        String filename;
+        if (!normalizePath(server->arg("file"), filename)) {
+            server->send(400, "text/plain", "Invalid file param");
+            return;
+        }
+        if (!isEditablePath(filename)) {
+            server->send(403, "text/plain", "Editing only allowed for .txt and .json files");
+            return;
+        }
         String content = server->arg("content");
+        if (SD.exists(filename)) {
+            SD.remove(filename);
+        }
         File file = SD.open(filename, FILE_WRITE);
         if (!file) {
             server->send(500, "text/plain", "Failed to open file for writing");
@@ -171,7 +298,7 @@ namespace sd_gateway {
             File entry = root.openNextFile();
             if (!entry) break;
             if (!first) json += ",";
-            json += "\"" + String(entry.name()) + "\"";
+            json += "\"" + jsonEscape(String(entry.name())) + "\"";
             first = false;
             entry.close();
         }

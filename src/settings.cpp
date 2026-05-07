@@ -14,7 +14,7 @@ bool Settings::loadSettings() {
         return false;
     }
 
-    StaticJsonDocument<512> doc;
+    JsonDocument doc;
     DeserializationError error = deserializeJson(doc, file);
     file.close();
 
@@ -28,11 +28,11 @@ bool Settings::loadSettings() {
 
 
     bool saveNeeded = false;
-    if (!doc.containsKey("lastConnectedSSID")) {
+    if (!doc["lastConnectedSSID"].is<const char*>()) {
         doc["lastConnectedSSID"] = "";
         saveNeeded = true;
     }
-    if (!doc.containsKey("lastConnectedPassword")) {
+    if (!doc["lastConnectedPassword"].is<const char*>()) {
         doc["lastConnectedPassword"] = "";
         saveNeeded = true;
     }
@@ -41,24 +41,24 @@ bool Settings::loadSettings() {
     _lastConnectedPassword = doc["lastConnectedPassword"].as<String>();
 
     if (saveNeeded) {
-
-        file.close();
         saveSettings();
-    } else {
-        file.close();
     }
 
     return true;
 }
 
 bool Settings::saveSettings() {
+    if (SD.exists(_settingsFile)) {
+        SD.remove(_settingsFile);
+    }
+
     File file = SD.open(_settingsFile, FILE_WRITE);
     if (!file) {
         Serial.println("Failed to open settings file for writing.");
         return false;
     }
 
-    StaticJsonDocument<512> doc;
+    JsonDocument doc;
     doc["wifi"]["ssid"] = _wifiSettings.ssid;
     doc["wifi"]["password"] = _wifiSettings.password;
     doc["lastConnectedSSID"] = _lastConnectedSSID;
@@ -109,7 +109,7 @@ bool Settings::_createDefaultSettings() {
         return false;
     }
 
-    StaticJsonDocument<128> doc;
+    JsonDocument doc;
     doc["wifi"]["ssid"] = "";
     doc["wifi"]["password"] = "";
     doc["lastConnectedSSID"] = "";

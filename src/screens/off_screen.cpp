@@ -1,6 +1,5 @@
 #include "off_screen.h"
 #include "../ui.h"
-#include <esp_sleep.h>
 
 namespace screens {
     void drawOffScreen() {
@@ -9,26 +8,12 @@ namespace screens {
         ::renderCurrentScreen();
 
 
-        ::bufferRow("Off screen", 2);
+        ::bufferRow("Powering off...", 2);
+        ::bufferRow("For full shutdown, double-click", 3);
+        ::bufferRow("the side button.", 4);
 
 
         ::drawRowsBuffered();
         M5.Display.display();
-
-
-        WiFi.disconnect();
-
-
-        SD.end();
-
-
-        M5.Display.sleep();
-
-
-        M5.Power.powerOff();
-
-
-        esp_sleep_enable_timer_wakeup(0);
-        esp_deep_sleep_start();
     }
 }

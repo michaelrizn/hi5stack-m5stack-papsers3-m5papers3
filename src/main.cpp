@@ -23,7 +23,6 @@
 #include "games/minesweeper/game.h"
 #include "games/sudoku/game.h"
 #include "games/test/game.h"
-#include "screens/games_screen.h"
 
 bool isRendering = false;
 bool ui_needs_update = true;
@@ -55,10 +54,6 @@ void setup() {
 
 
     Settings settings;
-    WiFiSettings wifiSettings = settings.getWiFiSettings();
-
-
-
 
     setupUI();
 

@@ -93,6 +93,10 @@ namespace apps_reader {
 
         doc[currentFileName] = currentPageIndex;
         
+        if (SD.exists(STATE_FILE_PATH)) {
+            SD.remove(STATE_FILE_PATH);
+        }
+
         File stateFile = SD.open(STATE_FILE_PATH, FILE_WRITE);
         if (stateFile) {
             serializeJson(doc, stateFile);
@@ -123,7 +127,7 @@ namespace apps_reader {
             return 0;
         }
         
-        if (doc.containsKey(filename)) {
+        if (doc[filename].is<int>()) {
             int page = doc[filename].as<int>();
             Serial.println("[Reader] State loaded for " + filename + ": page " + String(page + 1));
             return page;
@@ -236,15 +240,7 @@ namespace apps_reader {
         booksDir.close();
         
 
-        for (int i = 0; i < bookFilesCount - 1; i++) {
-            for (int j = 0; j < bookFilesCount - i - 1; j++) {
-                if (bookFiles[j] > bookFiles[j + 1]) {
-                    String temp = bookFiles[j];
-                    bookFiles[j] = bookFiles[j + 1];
-                    bookFiles[j + 1] = temp;
-                }
-            }
-        }
+        std::sort(bookFiles, bookFiles + bookFilesCount);
         
 
         totalPages = (bookFilesCount + itemsPerPage - 1) / itemsPerPage;

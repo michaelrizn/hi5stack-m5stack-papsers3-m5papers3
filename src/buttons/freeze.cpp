@@ -1,8 +1,8 @@
 #include "freeze.h"
 #include "../ui.h"
+#include "../power_shutdown.h"
 #include "../screens/txt_viewer_screen.h"
 #include "../screens/img_viewer_screen.h"
-#include <esp_sleep.h>
 
 void freezeAction() {
 
@@ -22,6 +22,5 @@ void freezeAction() {
 
     M5.Display.display();
 
-    M5.Power.powerOff();
-    esp_deep_sleep_start();
+    power_shutdown::powerOff();
 }

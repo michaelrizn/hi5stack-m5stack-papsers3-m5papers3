@@ -71,19 +71,9 @@ namespace screens {
         static String files[MAX_DISPLAYED_FILES];
         int foldersCount = 0;
         int filesCount = 0;
-        const size_t maxFilesPerBatch = 100; // Process more files per batch for better performance
-        size_t processedFiles = 0;
-
         while (true) {
             File file = root.openNextFile();
             if (!file) break;
-
-
-            if (processedFiles >= maxFilesPerBatch) {
-                displayMessage("Loading more files...");
-                M5.Display.display();
-                processedFiles = 0;
-            }
 
             String filename = file.name();
             if (filename.startsWith(".") || filename == "settings.json") {
@@ -101,30 +91,11 @@ namespace screens {
                 }
             }
             file.close();
-            processedFiles++;
         }
         root.close();
 
-
-        for (int i = 0; i < foldersCount - 1; i++) {
-            for (int j = 0; j < foldersCount - i - 1; j++) {
-                if (folders[j] > folders[j + 1]) {
-                    String temp = folders[j];
-                    folders[j] = folders[j + 1];
-                    folders[j + 1] = temp;
-                }
-            }
-        }
-
-        for (int i = 0; i < filesCount - 1; i++) {
-            for (int j = 0; j < filesCount - i - 1; j++) {
-                if (files[j] > files[j + 1]) {
-                    String temp = files[j];
-                    files[j] = files[j + 1];
-                    files[j + 1] = temp;
-                }
-            }
-        }
+        std::sort(folders, folders + foldersCount);
+        std::sort(files, files + filesCount);
 
         displayedFilesCount = 0;
 
@@ -138,6 +109,9 @@ namespace screens {
 
 
         totalPages = (displayedFilesCount + itemsPerPage - 1) / itemsPerPage;
+        if (totalPages < 1) {
+            totalPages = 1;
+        }
 
 
         if (currentPage >= totalPages) {

@@ -23,7 +23,6 @@ namespace screens {
         String sdgwState = sd_gateway::isActive() ? "On port :8080" : "Off";
         ::bufferRow("SD Gateway: " + sdgwState, 6, TFT_BLACK, TFT_WHITE, FONT_SIZE_ALL, true);
 
-
         ::bufferRow("Apps", 7, TFT_BLACK, TFT_WHITE, FONT_SIZE_ALL, true);
 
         ::bufferRow("Games", 8, TFT_BLACK, TFT_WHITE, FONT_SIZE_ALL, true);
